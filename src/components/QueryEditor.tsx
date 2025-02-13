@@ -13,10 +13,15 @@ interface Field {
   name: string
   label: string
   value?: string
-  isGroupStart?: boolean
-  isGroupEnd?: boolean
   nextTokenType?: string[],
   operators?: string
+}
+
+interface TokenValid {
+  field: Array<string>;
+  operator: Array<string>;
+  combinator: Array<string>;
+  group: Array<string>;
 }
 
 interface Token {
@@ -24,9 +29,8 @@ interface Token {
   name?: string;
   label?: string;
   value?: string;
-  isGroupStart?: boolean;
-  isGroupEnd?: boolean;
   selectedType?: string;
+  valid?: TokenValid;
 }
 
 interface TokenColorClasses {
@@ -51,12 +55,12 @@ interface ParseToken extends HTMLSpanElement {
 
 // Sample data 
 const FIELDS: Field[] = [
-  { name: "text", label: "Text", type: "text", operators: "contains, doesNotContains" },
-  { name: "created_date", label: "Created Date", type: "date", operators: "=, !=,<, >, <=,>=" },
-  { name: "updated_date", label: "Updated Date", type: "date", operators: "=, !=,<, >, <=,>=" },
-  { name: "kn_created", label: "Added to Kn", type: "date", operators: "=, !=,<, >, <=,>=" },
-  { name: "classifier", label: "Classifier", type: "text", operators: "contains, doesNotContains" },
-  { name: "created_by", label: "Created By", type: "text", operators: "contains, doesNotContains" }
+  { name: "text", label: "Text", type: "text", operators: "contains,doesNotContains" },
+  { name: "created_date", label: "Created Date", type: "date", operators: "=,!=,<,>,<=,>=" },
+  { name: "updated_date", label: "Updated Date", type: "date", operators: "=,!=,<,>,<=,>=" },
+  { name: "kn_created", label: "Added to Kn", type: "date", operators: "=,!=,<,>,<=,>=" },
+  { name: "classifier", label: "Classifier", type: "text", operators: "contains,doesNotContains" },
+  { name: "created_by", label: "Created By", type: "text", operators: "contains,doesNotContains" }
 ];
 
 const ALL_OPERATORS = [
@@ -94,10 +98,17 @@ const TOKEN_COLORS: TokenColorClasses = {
 const QueryEditor: React.FC = () => {
   const [tokens, setTokens] = useState<Token[]>([{
     type: 'field,group',
+    valid: {
+      "group": ["("],
+      "field": [],
+      "operator": [],
+      "combinator": [],
+    },
     selectedType: ''
   }]);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const [openBracket, setOpenBracket] = useState(false);
   const [focusedSpanOffsetLeft, setFocusedSpanOffsetLeft] = useState<any>([]);
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -120,15 +131,21 @@ const QueryEditor: React.FC = () => {
     return typeMap[currentType] || 'field';
   };
 
-  const getSuggestions = (tokenTypes: string, inputText: string = '') => {
+  const getSuggestions = (index: number, inputText: string = '') => {
+    const token = tokens[index]
+    //console.log(token)
     let suggestionList: Suggestion[] = [];
     //split tokenTypes by comma
-    const tokenTypeArr = tokenTypes.split(',');
-    //if field is exists in tokenTypeArr then add fields to suggestionList
+    const tokenTypeArr = token.type.split(',');
+    //If field is exists in tokenTypeArr then add fields to suggestionList
     if(tokenTypeArr.includes('field')) {
+      let filteredFields = FIELDS;
+      if(tokens[index-1] && tokens[index-1]?.name === ')'){
+        filteredFields = [];
+      }
       suggestionList = [
         ...suggestionList, 
-        ...FIELDS.filter(field => field.label.toLowerCase().includes(inputText.toLowerCase()))
+        ...filteredFields.filter(field => field.label.toLowerCase().includes(inputText.toLowerCase()))
         .map(field => {
           return { 
             tokenName: field.name, 
@@ -141,9 +158,20 @@ const QueryEditor: React.FC = () => {
       ];
     }
     if(tokenTypeArr.includes('operator')) {
+      let filteredOperators = ALL_OPERATORS;
+
+      //Check if any valid operators list is defined than filter 
+      
+      if(token?.valid?.operator){
+        filteredOperators = filteredOperators.filter(o => {
+          //console.log(o)
+          return token?.valid?.operator.includes(o.name)
+        });
+        console.log("Valid operators", filteredOperators)
+      }
       suggestionList = [
         ...suggestionList, 
-        ...ALL_OPERATORS.filter(operator => operator.label.toLowerCase().includes(inputText.toLowerCase()))
+        ...filteredOperators.filter(operator => operator.label.toLowerCase().includes(inputText.toLowerCase()))
         .map(operator => {
           return { 
             tokenName: operator.name, 
@@ -156,9 +184,15 @@ const QueryEditor: React.FC = () => {
       ];
     }
     if(tokenTypeArr.includes('combinator')) {
+      console.log(tokens[index-1])
+      let filteredCombinator = COMBINATORS;
+      //Check if previous token is a closing bracket than do not suggest combinator 
+      if(tokens[index-1]?.name == "("){
+        filteredCombinator = [];
+      }
       suggestionList = [
         ...suggestionList, 
-        ...COMBINATORS.filter(comb => comb.toLowerCase().includes(inputText.toLowerCase()))
+        ...filteredCombinator.filter(comb => comb.toLowerCase().includes(inputText.toLowerCase()))
         .map(comb => {
           return { 
             tokenName: comb, 
@@ -170,21 +204,40 @@ const QueryEditor: React.FC = () => {
         })
       ];
     }
+
     if(tokenTypeArr.includes('group')) {
+      let filteredGroups = GROUPS;
+      //If previous token is closing bracket than do not suggest opening bracket
+      if(tokens[index-1] && tokens[index-1]?.name === ')'){
+        filteredGroups = filteredGroups.filter(grp => grp !== '(');
+      }
+      //Check if open bracket are more than closing bracket than suggest closing bracket
+      const oB = tokens.filter(t => t.name === '(').length;
+      const oC = tokens.filter(t => t.name === ')').length;
+      console.log("Open/close bracket count: ", oB, oC)
+      if(oB === oC){
+        filteredGroups = filteredGroups.filter(grp => grp !== ')');
+      }
+      
       suggestionList = [
         ...suggestionList, 
-        ...GROUPS.filter(grp => grp.toLowerCase().includes(inputText.toLowerCase()))
-        .map(grp => {
-          return { 
-            tokenName: grp, 
-            tokenLabel: grp, 
-            tokenType: "group", 
-            nextTokenType: getNextTokenType("group"),
-            nextValidValues: []
-          }
-        })
+        ...filteredGroups
+          .filter(grp => 
+            token?.valid?.group.includes(grp.toLowerCase())
+          )
+          .filter(grp => grp.toLowerCase().includes(inputText.toLowerCase()))
+          .map(grp => {
+            return { 
+              tokenName: grp, 
+              tokenLabel: grp, 
+              tokenType: "group", 
+              nextTokenType: getNextTokenType("group"),
+              nextValidValues: []
+            }
+          })
       ];
     }
+    
     //console.log("Suggestions: ", suggestionList)
     setSuggestions(suggestionList.filter(s => 
       inputText === '' || 
@@ -193,6 +246,10 @@ const QueryEditor: React.FC = () => {
     setSelectedSuggestionIndex(0);
     setSuggestionsVisible(suggestionList.length > 0);
   };
+
+  const setValids = (index: number) => {
+    console.log(tokens[index])
+  }
 
   const handleTokenFocus = (e: FocusEvent<HTMLSpanElement>, index: number) => {
     const focusedSpan = e.target;
@@ -204,7 +261,7 @@ const QueryEditor: React.FC = () => {
     
     const tokenTypes = tokens[index].type;
     setFocusedTokenIndex(index);
-    getSuggestions(tokenTypes);
+    getSuggestions(index);
   };
 
   const addGroup = () => {
@@ -225,31 +282,75 @@ const QueryEditor: React.FC = () => {
     }, 0);
   };
 
-  const handleSuggestionSelect = (suggestion: string, tokenType: string) => {
+  // get the valid values for a next token  
+  //
+  const getValidValues = (currentToken: Token, currentTokenIndex: number) => {
+    const valids: TokenValid = {
+      field: [],
+      operator: [],
+      combinator: [],
+      group: []
+    };
+    const prevToken = tokens[currentTokenIndex-1];
+    const nextToken = tokens[currentTokenIndex+1];
+    //If field is exists in tokenTypeArr then add fields to suggestionList
+    if(currentToken.selectedType === 'field') {
+      console.log(currentToken, currentToken.label?.toLowerCase())
+      const validFields = FIELDS.filter(f => f.label.toLowerCase() === currentToken.label?.toLowerCase());
+      console.log(validFields)
+      valids.operator = validFields[0].operators?.split(",") || [];
+    }
+    if(currentToken.selectedType === 'operator'){
+    }
+    if(currentToken.selectedType === 'combinator'){
+      valids.group.push("(");
+    }
+    if(currentToken.selectedType === 'group'){
+      valids.group.push("(");
+    }
+    if(currentToken.selectedType === 'value'){
+      valids.group.push(")");
+    }
+
+    return valids;
+  }
+
+  const handleSuggestionSelect = (suggestion: string, tokenType: string = "value") => {
     setErrorMessage("");
-    console.log("selected suggestions: ", suggestion, tokenType, tokens)
+    //console.log("selected suggestions: ", suggestion, tokenType, tokens)
     const selectedSuggestion = suggestions.find(s => s.tokenLabel.toLowerCase() === suggestion.toLowerCase());
     if (!selectedSuggestion && tokenType !== 'value') {
       setErrorMessage("Invalid suggestion selected");
       return;
     }
+    //console.log("Selected token type", tokenType);
     const updatedTokens = [...tokens];
-    
-    updatedTokens[focusedTokenIndex] = {
-      ...updatedTokens[focusedTokenIndex],
-      name: suggestion.trim(),
-      selectedType: tokenType
-    };
+    const currentToken = updatedTokens[focusedTokenIndex];
+    currentToken.name = suggestion.trim();
+    currentToken.label = suggestion.trim();
+    currentToken.selectedType = tokenType;
+    console.log("Current token", currentToken);
+    updatedTokens[focusedTokenIndex] = { ...currentToken };
+
+    console.log("All token", updatedTokens)
     //console.log(tokenType)
     const nextTokenType = getNextTokenType(tokenType);
-    //console.log("Next token type", nextTokenType)
-    
+
     const nextTokenIndex = focusedTokenIndex + 1;
     
-    if (!updatedTokens[nextTokenIndex]) {
-      updatedTokens.splice(nextTokenIndex, 0, { type: nextTokenType, selectedType: nextTokenType === 'value' ? 'value' : ''});
+     // if token not exits or already exists and type is not same then 
+     // insert a new token wthout delete existing token. shift all tokens to the right
+    if(!updatedTokens[nextTokenIndex] || updatedTokens[nextTokenIndex].type.indexOf(tokenType) === -1){
+      updatedTokens.splice(nextTokenIndex, 0, { 
+        type: nextTokenType, 
+        selectedType: tokenType === "value"? "value" : "",
+        valid: getValidValues(currentToken, focusedTokenIndex)
+      });
+    }else if(updatedTokens[nextTokenIndex].selectedType === tokenType){ //if token already exists and type is not same then insert a new token and shift all tokens to the right
+      updatedTokens[nextTokenIndex].selectedType = tokenType === "value"? "value" : "";
+      updatedTokens[nextTokenIndex].valid = getValidValues(currentToken, focusedTokenIndex);
     }
-
+    console.log(updatedTokens)
     setTokens(updatedTokens);
     setSuggestionsVisible(false);
 
@@ -321,7 +422,7 @@ const QueryEditor: React.FC = () => {
         if (tokens[index + 1]) {
           focusStart(tokensRef.current[index + 1]);
           setFocusedTokenIndex(index + 1);
-          getSuggestions(tokens[index + 1].type, "");
+          getSuggestions(index+1);
         }else{ //Other wise create a new token and move to it
           handleSuggestionSelect(e.currentTarget.innerText, "value");
         }
@@ -334,7 +435,7 @@ const QueryEditor: React.FC = () => {
         //If next token exists then move to next
         focusEnd(tokensRef.current[index - 1]);
         setFocusedTokenIndex(index - 1);
-        getSuggestions(tokens[index - 1].type, "");
+        getSuggestions(index - 1);
         return;
       }
       //check if space is pressed in the end of value field
@@ -376,13 +477,13 @@ const QueryEditor: React.FC = () => {
       e.preventDefault();
       focusEnd(tokensRef.current[index - 1]);
       setFocusedTokenIndex(index - 1);
-      getSuggestions(tokens[index - 1].type, "");
+      getSuggestions(index - 1);
     }
     if (e.key === 'ArrowRight' && position === textLength && index < tokens.length - 1) {
       e.preventDefault();
       focusStart(tokensRef.current[index + 1]);
       setFocusedTokenIndex(index + 1);
-      getSuggestions(tokens[index + 1].type, "");
+      getSuggestions(index + 1);
     }
 
     //Handle backspace in the start of any field
@@ -450,7 +551,7 @@ const QueryEditor: React.FC = () => {
 
     //If backspace or delete pressed
     if (e.key === 'Backspace' || e.key === 'Delete' || e.key.length === 1) {
-      getSuggestions(currentToken.type, currentText);
+      getSuggestions(index, currentText);
     }
 
     // Handle space in the end of a value field
