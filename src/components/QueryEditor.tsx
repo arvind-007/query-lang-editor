@@ -323,7 +323,7 @@ const QueryEditor: React.FC = () => {
       setErrorMessage("Invalid suggestion selected");
       return;
     }
-    //console.log("Selected token type", tokenType);
+    //Update values in current token
     const updatedTokens = [...tokens];
     const currentToken = updatedTokens[focusedTokenIndex];
     currentToken.name = suggestion.trim();
@@ -338,19 +338,21 @@ const QueryEditor: React.FC = () => {
 
     const nextTokenIndex = focusedTokenIndex + 1;
     
-     // if token not exits or already exists and type is not same then 
+     // Create new token if token not exits or already exists and type is not same then 
      // insert a new token wthout delete existing token. shift all tokens to the right
-    if(!updatedTokens[nextTokenIndex] || updatedTokens[nextTokenIndex].type.indexOf(tokenType) === -1){
+     console.log("Existing token data ", updatedTokens[nextTokenIndex]?.type, nextTokenType)
+    if(!updatedTokens[nextTokenIndex] || (updatedTokens[nextTokenIndex] && updatedTokens[nextTokenIndex].type.indexOf(nextTokenType) === -1)){
       updatedTokens.splice(nextTokenIndex, 0, { 
         type: nextTokenType, 
-        selectedType: tokenType === "value"? "value" : "",
+        selectedType: nextTokenType === "value"? "value" : "",
         valid: getValidValues(currentToken, focusedTokenIndex)
       });
     }else if(updatedTokens[nextTokenIndex].selectedType === tokenType){ //if token already exists and type is not same then insert a new token and shift all tokens to the right
+      console.log("somethign ere ")
       updatedTokens[nextTokenIndex].selectedType = tokenType === "value"? "value" : "";
       updatedTokens[nextTokenIndex].valid = getValidValues(currentToken, focusedTokenIndex);
     }
-    console.log(updatedTokens)
+    console.log("data is updated::", updatedTokens)
     setTokens(updatedTokens);
     setSuggestionsVisible(false);
 
@@ -444,12 +446,13 @@ const QueryEditor: React.FC = () => {
         handleSuggestionSelect(e.currentTarget.innerText.trim(), "value");
         return;
       }
-      //Check if backspace is pressed after removing the last character
+      //Check if backspace is pressed in the start of the value or pressed delete in the end of the value field and the length of the value field is greater than 2
       else if (((e.key === 'Backspace' && position === 1) || (e.key === 'Delete' && position === textLength - 1)) && e.currentTarget.innerText.length > 2) {
         e.preventDefault();
         //show error message "You are not allow to delete quotes for the value"
         return;
       } 
+      //Check if backspace is pressed in the start of the value or pressed delete in the end of the value field and text doest not have any value or other than just quotes 
       else if ((e.key === 'Backspace' || e.key === 'Delete') && index > 0 && (e.currentTarget.innerText === '""' || e.currentTarget.innerText === ''))  {
         e.preventDefault();
 
@@ -486,13 +489,15 @@ const QueryEditor: React.FC = () => {
       getSuggestions(index + 1);
     }
 
-    //Handle backspace in the start of any field
+    //Check if backspace is pressed in the start of the value or pressed delete in the end of the value field and the length of the value field is greater than 2
     if (((e.key === 'Backspace' && position === 0) || (e.key === 'Delete' && position === textLength)) && e.currentTarget.innerText.length > 2) 
     {
       e.preventDefault();
       //show error message "You are not allow to delete quotes for the value"
     }
-    else if ((e.key === 'Backspace' || e.key === 'Delete') && index > 0 && e.currentTarget.innerText === '')  {
+    //Check if backspace is pressed in the start of the value or pressed delete in the end of the value field and text doest not have any value or other than just quotes 
+    else if ((e.key === 'Backspace' || e.key === 'Delete') && index > 0 && (e.currentTarget.innerText === '\n' || e.currentTarget.innerText === ''))  {
+
       e.preventDefault();
 
       //Remove the current token
@@ -568,6 +573,20 @@ const QueryEditor: React.FC = () => {
     }
   };
 
+  const handleTokenBlur = (e: React.FocusEvent<HTMLSpanElement>, index: number) => {
+    const currentToken = tokens[index];
+    const currentText = e.currentTarget.innerText || '';
+    if(currentToken.type === 'value' && !(currentText === "" || currentText === '""')) {
+      
+      currentToken.name = currentText;
+      currentToken.label = currentText;
+      let newTokens = [...tokens];
+      newTokens[index] = { ...currentToken };
+
+      setTokens(newTokens);
+    }
+  }
+
   const mouseUp = (e: React.MouseEvent<HTMLElement>, index: number) => {
     
     e.preventDefault();
@@ -604,6 +623,10 @@ const QueryEditor: React.FC = () => {
         onKeyDown={(e) => handleKeyDown(e, index)}
         onKeyUp={(e) => handleKeyUp(e, index)}
         onMouseUp={(e)=>mouseUp(e, index)}
+        onBlur={(e) => {
+          const blurredElement = e.relatedTarget as HTMLSpanElement;
+          handleTokenBlur(e, index);
+        }}
         data-token-type={token.type}
         data-token-name={token.name}
         data-token-selected_type={token.selectedType}
